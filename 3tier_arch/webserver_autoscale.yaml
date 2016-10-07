@@ -1,0 +1,225 @@
+heat_template_version: 2016-04-08
+description: Web & App servers AutoScaling.
+
+parameters:
+  webserver_image_name:
+    type: string
+    description: "Image used for the webserver."
+  webserver_flavor_name:
+    type: string
+    description: "Flavor used for the webserver."
+  webserver_security_group:
+    type: string
+    description: "Name of the webservers security groups."
+  webserver_subnet:
+    type: string
+    description: "Name of Webserver subnet."
+  webserver_key_name:
+    type: string
+    description: Name of Webserver SSH Key.
+  webserver_autoscale_min_size:
+    description: "Minimum number of webservers."
+    type: number
+    default: 1
+  webserver_autoscale_max_size:
+    description: "Maximum number of webservers."
+    type: number
+    default: 5
+  webserver_scaleup_threshold:
+    type: number
+    description: "Threshold when the webservers scale up."
+  webserver_scaledown_threshold:
+    type: number
+    description: "Threshold when the webservers scale down."
+  webserver_alarm_scaleup_check_period:
+    type: number
+    description: "Checking period of Webservers scaling up."
+  webserver_alarm_scaledown_check_period:
+    type: number
+    description: "Checking period of Webservers scaling down."
+  webserver_lb_member_pool_id:
+    type: string
+    description: "Pool ID that the server will be attached to be member of a loadbalancer."
+  appserver_lb_ip:
+    type: string
+    description: "Appserver Loadbalancer IP."
+
+
+  appserver_image_name:
+    type: string
+    description: "Image used for the appserver."
+  appserver_flavor_name:
+    type: string
+    description: "Flavor used for the appserver."
+  appserver_security_group:
+    type: string
+    description: "Name of the appservers security groups."
+  appserver_subnet:
+    type: string
+    description: "Name of Webserver subnet."
+  appserver_key_name:
+    type: string
+    description: Name of Webserver SSH Key.
+  appserver_autoscale_min_size:
+    description: "Minimum number of appservers."
+    type: number
+    default: 1
+  appserver_autoscale_max_size:
+    description: "Maximum number of appservers."
+    type: number
+    default: 5
+  appserver_scaleup_threshold:
+    type: number
+    description: "Threshold when the appservers scale up."
+  appserver_scaledown_threshold:
+    type: number
+    description: "Threshold when the appservers scale down."
+  appserver_alarm_scaleup_check_period:
+    type: number
+    description: "Checking period of appservers scaling up."
+  appserver_alarm_scaledown_check_period:
+    type: number
+    description: "Checking period of appservers scaling down."
+  appserver_lb_member_pool_id:
+    type: string
+    description: "Pool ID that the server will be attached to be member of a loadbalancer."
+  appserver_db_host:
+    type: string
+  appserver_db_name:
+    type: string
+  appserver_db_user:
+    type: string
+  appserver_db_pass:
+    type: string
+
+resources:
+  webserver_autoscale_group:
+    type: OS::Heat::AutoScalingGroup
+    properties:
+      min_size: {get_param: webserver_autoscale_min_size}
+      max_size: {get_param: webserver_autoscale_max_size}
+      #cooldown: 300
+      desired_capacity: 1
+      resource:
+        type: OS::Nova::Server::Webserver
+        properties:
+          image_name: {get_param: webserver_image_name}
+          flavor_name: {get_param: webserver_flavor_name}
+          key_name: {get_param: webserver_key_name}
+          security_group: {get_param: webserver_security_group}
+          subnet: {get_param: webserver_subnet}
+          member_pool_id: {get_param: webserver_lb_member_pool_id}
+          stack_id: {get_param: "OS::stack_id"}
+          lb_ip: {get_param: appserver_lb_ip}
+
+  webserver_scaleup_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: {get_resource: webserver_autoscale_group}
+      scaling_adjustment: 1
+      cooldown: 600
+
+  webserver_scaledown_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: {get_resource: webserver_autoscale_group}
+      scaling_adjustment: -1
+      cooldown: 600
+
+  webserver_cpu_alarm_high:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      evaluation_periods: 1
+      period: {get_param: webserver_alarm_scaleup_check_period}
+      threshold: {get_param: webserver_scaleup_threshold}
+      comparison_operator: gt
+      #matching_metadata: {'metadata.user_metadata.stack': {get_param: "OS::stack_id"}, 'metadata.user_metadata.scaling.type': 'webserver'}
+      matching_metadata: {'metadata.user_metadata.scaletype': 'webserver'}
+      alarm_actions:
+        - {get_attr: [webserver_scaleup_policy, alarm_url]}
+
+  webserver_cpu_alarm_low:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      evaluation_periods: 1
+      period: {get_param: webserver_alarm_scaledown_check_period}
+      threshold: {get_param: webserver_scaledown_threshold}
+      comparison_operator: lt
+      #matching_metadata: {'metadata.user_metadata.stack': {get_param: "OS::stack_id"}, 'metadata.user_metadata.scaling.type': 'webserver'}
+      matching_metadata: {'metadata.user_metadata.scaletype': 'webserver'}
+      alarm_actions:
+        - {get_attr: [webserver_scaledown_policy, alarm_url]}
+
+
+
+  appserver_autoscale_group:
+    type: OS::Heat::AutoScalingGroup
+    properties:
+      min_size: {get_param: appserver_autoscale_min_size}
+      max_size: {get_param: appserver_autoscale_max_size}
+      #cooldown: 300
+      desired_capacity: 1
+      resource:
+        type: OS::Nova::Server::Appserver
+        properties:
+          image_name: {get_param: appserver_image_name}
+          flavor_name: {get_param: appserver_flavor_name}
+          key_name: {get_param: appserver_key_name}
+          security_group: {get_param: appserver_security_group}
+          subnet: {get_param: appserver_subnet}
+          member_pool_id: {get_param: appserver_lb_member_pool_id}
+          stack_id: {get_param: "OS::stack_id"}
+          db_host: {get_param: appserver_db_host}
+          db_name: {get_param: appserver_db_name}
+          db_user: {get_param: appserver_db_user}
+          db_pass: {get_param: appserver_db_pass}
+
+  appserver_scaleup_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: {get_resource: appserver_autoscale_group}
+      scaling_adjustment: 1
+      cooldown: 600
+
+  appserver_scaledown_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: {get_resource: appserver_autoscale_group}
+      scaling_adjustment: -1
+      cooldown: 600
+
+  appserver_cpu_alarm_high:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      evaluation_periods: 1
+      period: {get_param: appserver_alarm_scaleup_check_period}
+      threshold: {get_param: appserver_scaleup_threshold}
+      comparison_operator: gt
+      #matching_metadata: {'metadata.user_metadata.stack': {get_param: "OS::stack_id"}, 'metadata.user_metadata.scaling.type': 'appserver'}
+      matching_metadata: {'metadata.user_metadata.scaletype': 'appserver'}
+      alarm_actions:
+        - {get_attr: [appserver_scaleup_policy, alarm_url]}
+
+  appserver_cpu_alarm_low:
+    type: OS::Ceilometer::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      evaluation_periods: 1
+      period: {get_param: appserver_alarm_scaledown_check_period}
+      threshold: {get_param: appserver_scaledown_threshold}
+      comparison_operator: lt
+      #matching_metadata: {'metadata.user_metadata.stack': {get_param: "OS::stack_id"}, 'metadata.user_metadata.scaling.type': 'appserver'}
+      matching_metadata: {'metadata.user_metadata.scaletype': 'appserver'}
+      alarm_actions:
+        - {get_attr: [appserver_scaledown_policy, alarm_url]}
